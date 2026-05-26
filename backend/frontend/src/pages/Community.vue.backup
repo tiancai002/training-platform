@@ -1,0 +1,826 @@
+<template>
+  <div class="community-page">
+    <!-- Hero Section -->
+    <section class="community-hero">
+      <div class="hero-content">
+        <div class="hero-icon">💬</div>
+        <h1>学习社区</h1>
+        <p class="hero-subtitle">技术交流 · 经验分享 · 资源互助 · 共同成长</p>
+        <div class="hero-stats">
+          <div class="hero-stat">
+            <span class="stat-value">{{ posts.length }}</span>
+            <span class="stat-label">帖子</span>
+          </div>
+          <div class="hero-stat">
+            <span class="stat-value">{{ totalComments }}</span>
+            <span class="stat-label">评论</span>
+          </div>
+          <div class="hero-stat">
+            <span class="stat-value">{{ categories.length }}</span>
+            <span class="stat-label">分类</span>
+          </div>
+          <div class="hero-stat">
+            <span class="stat-value">500+</span>
+            <span class="stat-label">用户</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Filter & Actions -->
+    <section class="action-section">
+      <div class="action-container">
+        <el-tabs v-model="activeCategory" @change="loadPosts" class="category-tabs">
+          <el-tab-pane label="🏠 全部" :name="0" />
+          <el-tab-pane v-for="cat in categories" :key="cat.id" :label="getCategoryIcon(cat.name) + ' ' + cat.name" :name="cat.id" />
+        </el-tabs>
+        
+        <div class="action-buttons">
+          <el-button type="primary" @click="showPostDialog = true" size="large" round>
+            <el-icon><Edit /></el-icon>
+            发布帖子
+          </el-button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Posts List -->
+    <section class="posts-section">
+      <div class="posts-container" v-loading="loading">
+        <!-- Pinned Posts -->
+        <div v-if="pinnedPosts.length" class="pinned-section">
+          <div class="section-label">
+            <el-icon><Star /></el-icon>
+            <span>置顶帖子</span>
+          </div>
+          <div class="post-cards">
+            <div
+              v-for="post in pinnedPosts"
+              :key="post.id"
+              class="post-card pinned"
+              @click="viewPost(post)"
+            >
+              <div class="post-card-content">
+                <div class="post-badge">📌</div>
+                <div class="post-main">
+                  <h3 class="post-title">{{ post.title }}</h3>
+                  <div class="post-meta">
+                    <el-tag type="warning" size="small">置顶</el-tag>
+                    <span class="meta-item">
+                      <el-icon><User /></el-icon>
+                      {{ post.author?.nickname || '未知用户' }}
+                    </span>
+                    <span class="meta-item">
+                      <el-icon><Clock /></el-icon>
+                      {{ formatDate(post.created_at) }}
+                    </span>
+                  </div>
+                </div>
+                <div class="post-stats">
+                  <div class="stat-item">
+                    <el-icon><Document /></el-icon>
+                    <span>{{ post.view_count }}</span>
+                  </div>
+                  <div class="stat-item">
+                    <el-icon><Star /></el-icon>
+                    <span>{{ post.like_count }}</span>
+                  </div>
+                  <div class="stat-item">
+                    <el-icon><ChatDotRound /></el-icon>
+                    <span>{{ post.comment_count }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Normal Posts -->
+        <div class="normal-section">
+          <div class="section-label" v-if="pinnedPosts.length">
+            <el-icon><Document /></el-icon>
+            <span>最新帖子</span>
+          </div>
+          <div class="post-cards">
+            <div
+              v-for="post in normalPosts"
+              :key="post.id"
+              class="post-card"
+              @click="viewPost(post)"
+            >
+              <div class="post-card-content">
+                <div class="post-main">
+                  <h3 class="post-title">{{ post.title }}</h3>
+                  <p class="post-excerpt">{{ post.content.substring(0, 120) }}...</p>
+                  <div class="post-meta">
+                    <div class="tags">
+                      <el-tag
+                        v-for="tag in (post.tags || '').split(',').slice(0,3)"
+                        :key="tag"
+                        size="small"
+                        effect="plain"
+                      >
+                        {{ tag.trim() }}
+                      </el-tag>
+                    </div>
+                    <div class="meta-info">
+                      <span class="meta-item">
+                        <el-avatar :size="20" :src="post.author?.avatar_url" icon="User" />
+                        {{ post.author?.nickname || '未知用户' }}
+                      </span>
+                      <span class="meta-item">
+                        <el-icon><Clock /></el-icon>
+                        {{ formatTimeAgo(post.created_at) }}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <div class="post-stats">
+                  <div class="stat-item views">
+                    <el-icon><Document /></el-icon>
+                    <span>{{ post.view_count }}</span>
+                  </div>
+                  <div class="stat-item likes">
+                    <el-icon><Star /></el-icon>
+                    <span>{{ post.like_count }}</span>
+                  </div>
+                  <div class="stat-item comments">
+                    <el-icon><ChatDotRound /></el-icon>
+                    <span>{{ post.comment_count }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Empty State -->
+        <el-empty v-if="posts.length === 0" description="暂无帖子，快来发布第一个帖子吧！" />
+      </div>
+    </section>
+
+    <!-- Post Detail Dialog -->
+    <el-dialog
+      v-model="showPostDetail"
+      title="帖子详情"
+      width="900px"
+      class="post-detail-dialog"
+      destroy-on-close
+    >
+      <div v-if="selectedPost" class="post-detail">
+        <div class="detail-header">
+          <div class="author-info">
+            <el-avatar :size="50" :src="selectedPost.author?.avatar_url" icon="User" />
+            <div class="author-detail">
+              <div class="author-name">{{ selectedPost.author?.nickname || '未知用户' }}</div>
+              <div class="author-role">{{ selectedPost.author?.role === 'instructor' ? '👨‍🏫 讲师' : '👨‍🎓 学员' }}</div>
+            </div>
+          </div>
+          <div class="post-meta-detail">
+            <span class="meta-item">
+              <el-icon><Clock /></el-icon>
+              {{ formatDate(selectedPost.created_at) }}
+            </span>
+            <span class="meta-item">
+              <el-icon><Document /></el-icon>
+              {{ selectedPost.view_count }} 阅读
+            </span>
+          </div>
+        </div>
+
+        <div class="detail-body">
+          <h1 class="detail-title">{{ selectedPost.title }}</h1>
+          <div class="detail-tags">
+            <el-tag
+              v-for="tag in (selectedPost.tags || '').split(',')"
+              :key="tag"
+              size="small"
+            >
+              {{ tag.trim() }}
+            </el-tag>
+          </div>
+          <div class="detail-content" v-html="formatContent(selectedPost.content)"></div>
+        </div>
+
+        <div class="detail-actions">
+          <el-button @click="likePost(selectedPost)" :icon="Star" round>
+            点赞 {{ selectedPost.like_count }}
+          </el-button>
+          <el-button :icon="ChatDotRound" round>
+            评论 {{ selectedPost.comment_count }}
+          </el-button>
+          <el-button :icon="Share" round>
+            分享
+          </el-button>
+        </div>
+
+        <!-- Comments Section -->
+        <div class="comments-section">
+          <div class="comments-header">
+            <h3>💬 评论 ({{ comments.length }})</h3>
+          </div>
+          <div class="comments-list">
+            <div v-for="comment in comments" :key="comment.id" class="comment-item">
+              <el-avatar :size="40" :src="comment.author?.avatar_url" icon="User" />
+              <div class="comment-content">
+                <div class="comment-header">
+                  <span class="comment-author">{{ comment.author?.nickname || '未知用户' }}</span>
+                  <span class="comment-time">{{ formatTimeAgo(comment.created_at) }}</span>
+                </div>
+                <div class="comment-text">{{ comment.content }}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="showPostDetail = false">关闭</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- Create Post Dialog -->
+    <el-dialog v-model="showPostDialog" title="发布新帖子" width="700px">
+      <el-form :model="newPost" label-width="80px">
+        <el-form-item label="标题" required>
+          <el-input v-model="newPost.title" placeholder="请输入帖子标题" maxlength="100" show-word-limit />
+        </el-form-item>
+        <el-form-item label="分类" required>
+          <el-select v-model="newPost.category_id" placeholder="请选择分类" style="width: 100%">
+            <el-option v-for="cat in categories" :key="cat.id" :label="cat.name" :value="cat.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="标签">
+          <el-input v-model="newPost.tags" placeholder="用逗号分隔，如：Java，面试，学习" />
+        </el-form-item>
+        <el-form-item label="内容" required>
+          <el-input
+            v-model="newPost.content"
+            type="textarea"
+            :rows="10"
+            placeholder="分享你的学习经验、技术问题或资源..."
+            maxlength="5000"
+            show-word-limit
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showPostDialog = false">取消</el-button>
+        <el-button type="primary" @click="createPost" :loading="posting">
+          <el-icon><Check /></el-icon>
+          发布帖子
+        </el-button>
+      </template>
+    </el-dialog>
+  </div>
+</template>
+
+<script setup>
+import { ref, reactive, computed, onMounted } from 'vue'
+import { communityApi } from '@/api'
+import { ElMessage } from 'element-plus'
+import {
+  Edit, Document, User, Clock, Star, ChatDotRound, Check, Share
+} from '@element-plus/icons-vue'
+
+const activeCategory = ref(0)
+const categories = ref([])
+const posts = ref([])
+const loading = ref(false)
+const posting = ref(false)
+const showPostDialog = ref(false)
+const showPostDetail = ref(false)
+const selectedPost = ref(null)
+const comments = ref([])
+
+const newPost = reactive({
+  title: '',
+  category_id: null,
+  tags: '',
+  content: ''
+})
+
+const totalComments = computed(() => {
+  return posts.reduce((sum, post) => sum + (post.comment_count || 0), 0)
+})
+
+const pinnedPosts = computed(() => {
+  return posts.filter(post => post.is_pinned)
+})
+
+const normalPosts = computed(() => {
+  return posts.filter(post => !post.is_pinned)
+})
+
+const getCategoryIcon = (name) => {
+  const icons = {
+    '学习讨论': '📚',
+    '经验分享': '💡',
+    '资源分享': '📁',
+    '灌水专区': '💬'
+  }
+  return icons[name] || '📌'
+}
+
+const loadCategories = async () => {
+  try {
+    categories.value = await communityApi.getCategories()
+  } catch (error) {
+    console.error('Failed to load categories:', error)
+  }
+}
+
+const loadPosts = async () => {
+  loading.value = true
+  try {
+    const params = { page: 1, page_size: 50 }
+    if (activeCategory.value > 0) {
+      params.category_id = activeCategory.value
+    }
+    const result = await communityApi.getPosts(params)
+    posts.value = result.items || []
+  } catch (error) {
+    console.error('Failed to load posts:', error)
+    ElMessage.error('加载帖子失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+const viewPost = async (post) => {
+  selectedPost.value = post
+  showPostDetail.value = true
+  
+  // Load comments
+  try {
+    // Mock comments for demo
+    comments.value = [
+      {
+        id: 1,
+        author: { nickname: '张三', avatar_url: '' },
+        content: '感谢楼主分享，很有用！',
+        created_at: new Date(Date.now() - 3600000).toISOString()
+      },
+      {
+        id: 2,
+        author: { nickname: '李四', avatar_url: '' },
+        content: '学习了，收藏！',
+        created_at: new Date(Date.now() - 7200000).toISOString()
+      }
+    ]
+  } catch (error) {
+    console.error('Failed to load comments:', error)
+  }
+}
+
+const likePost = async (post) => {
+  try {
+    await communityApi.likePost(post.id)
+    post.like_count++
+    ElMessage.success('点赞成功')
+  } catch (error) {
+    console.error('Failed to like:', error)
+  }
+}
+
+const createPost = async () => {
+  if (!newPost.title || !newPost.content) {
+    ElMessage.warning('请填写标题和内容')
+    return
+  }
+  
+  posting.value = true
+  try {
+    await communityApi.createPost({
+      title: newPost.title,
+      category_id: newPost.category_id || 1,
+      tags: newPost.tags,
+      content: newPost.content
+    })
+    ElMessage.success('发布成功')
+    showPostDialog.value = false
+    loadPosts()
+    // Reset form
+    newPost.title = ''
+    newPost.content = ''
+    newPost.tags = ''
+    newPost.category_id = null
+  } catch (error) {
+    console.error('Failed to create post:', error)
+    ElMessage.error('发布失败')
+  } finally {
+    posting.value = false
+  }
+}
+
+const formatDate = (dateString) => {
+  if (!dateString) return ''
+  const date = new Date(dateString)
+  return date.toLocaleDateString('zh-CN')
+}
+
+const formatTimeAgo = (dateString) => {
+  if (!dateString) return ''
+  const date = new Date(dateString)
+  const now = new Date()
+  const diff = now - date
+  
+  if (diff < 60000) return '刚刚'
+  if (diff < 3600000) return `${Math.floor(diff / 60000)}分钟前`
+  if (diff < 86400000) return `${Math.floor(diff / 3600000)}小时前`
+  if (diff < 604800000) return `${Math.floor(diff / 86400000)}天前`
+  return formatDate(dateString)
+}
+
+const formatContent = (content) => {
+  // Convert newlines to <br> and preserve formatting
+  return content.replace(/\n/g, '<br>')
+}
+
+onMounted(() => {
+  loadCategories()
+  loadPosts()
+})
+</script>
+
+<style scoped>
+.community-page {
+  min-height: 100vh;
+  background: linear-gradient(180deg, #f5f7fa 0%, #fff 100%);
+  padding-bottom: 40px;
+}
+
+/* Hero Section */
+.community-hero {
+  background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+  padding: 60px 20px 80px;
+  position: relative;
+  overflow: hidden;
+}
+
+.hero-content {
+  max-width: 1200px;
+  margin: 0 auto;
+  text-align: center;
+  color: white;
+  position: relative;
+  z-index: 1;
+}
+
+.hero-icon {
+  font-size: 80px;
+  margin-bottom: 20px;
+  animation: bounce 2s infinite;
+}
+
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+.community-hero h1 {
+  font-size: 48px;
+  margin-bottom: 12px;
+  font-weight: bold;
+}
+
+.hero-subtitle {
+  font-size: 18px;
+  opacity: 0.9;
+  margin-bottom: 32px;
+}
+
+.hero-stats {
+  display: flex;
+  justify-content: center;
+  gap: 40px;
+}
+
+.hero-stat {
+  text-align: center;
+}
+
+.hero-stat .stat-value {
+  display: block;
+  font-size: 32px;
+  font-weight: bold;
+  margin-bottom: 4px;
+}
+
+.hero-stat .stat-label {
+  display: block;
+  font-size: 14px;
+  opacity: 0.8;
+}
+
+/* Action Section */
+.action-section {
+  max-width: 1200px;
+  margin: -40px auto 40px;
+  padding: 0 20px;
+  position: relative;
+  z-index: 10;
+}
+
+.action-container {
+  background: white;
+  border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+  padding: 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.category-tabs {
+  flex: 1;
+}
+
+.action-buttons {
+  margin-left: 20px;
+}
+
+/* Posts Section */
+.posts-section {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+.posts-container {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* Pinned Section */
+.pinned-section {
+  margin-bottom: 32px;
+}
+
+.section-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: bold;
+  color: #303133;
+  margin-bottom: 16px;
+}
+
+.post-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Post Card */
+.post-card {
+  background: white;
+  border-radius: 16px;
+  cursor: pointer;
+  transition: all 0.3s;
+  border: 2px solid transparent;
+}
+
+.post-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+  border-color: #4facfe;
+}
+
+.post-card.pinned {
+  border-color: #f7ba2a;
+  background: linear-gradient(135deg, #fff9e6 0%, #fff 100%);
+}
+
+.post-card-content {
+  padding: 20px;
+  display: flex;
+  gap: 20px;
+}
+
+.post-badge {
+  font-size: 32px;
+  flex-shrink: 0;
+}
+
+.post-main {
+  flex: 1;
+}
+
+.post-title {
+  font-size: 18px;
+  color: #303133;
+  margin-bottom: 8px;
+}
+
+.post-excerpt {
+  font-size: 14px;
+  color: #909399;
+  margin-bottom: 16px;
+  line-height: 1.6;
+}
+
+.post-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.tags {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.meta-info {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  color: #909399;
+  font-size: 13px;
+}
+
+.meta-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.post-stats {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.stat-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  color: #606266;
+}
+
+.stat-item.views { color: #409eff; }
+.stat-item.likes { color: #f56c6c; }
+.stat-item.comments { color: #67c23a; }
+
+/* Post Detail Dialog */
+.post-detail-dialog :deep(.el-dialog__body) {
+  padding: 0;
+}
+
+.post-detail {
+  overflow: hidden;
+}
+
+.detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 24px;
+  border-bottom: 1px solid #e4e7ed;
+}
+
+.author-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.author-name {
+  font-weight: bold;
+  font-size: 16px;
+  color: #303133;
+}
+
+.author-role {
+  font-size: 13px;
+  color: #909399;
+  margin-top: 4px;
+}
+
+.post-meta-detail {
+  display: flex;
+  gap: 16px;
+  color: #909399;
+  font-size: 14px;
+}
+
+.detail-body {
+  padding: 24px;
+}
+
+.detail-title {
+  font-size: 24px;
+  color: #303133;
+  margin-bottom: 16px;
+}
+
+.detail-tags {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.detail-content {
+  font-size: 16px;
+  line-height: 1.8;
+  color: #606266;
+}
+
+.detail-actions {
+  display: flex;
+  gap: 12px;
+  padding: 16px 24px;
+  border-top: 1px solid #e4e7ed;
+  border-bottom: 1px solid #e4e7ed;
+}
+
+/* Comments Section */
+.comments-section {
+  padding: 24px;
+  background: #f5f7fa;
+}
+
+.comments-header h3 {
+  font-size: 18px;
+  color: #303133;
+  margin-bottom: 20px;
+}
+
+.comments-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.comment-item {
+  display: flex;
+  gap: 12px;
+  padding: 16px;
+  background: white;
+  border-radius: 12px;
+}
+
+.comment-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.comment-author {
+  font-weight: bold;
+  color: #303133;
+}
+
+.comment-time {
+  font-size: 13px;
+  color: #909399;
+}
+
+.comment-text {
+  font-size: 14px;
+  color: #606266;
+  line-height: 1.6;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .community-hero h1 {
+    font-size: 32px;
+  }
+  
+  .hero-stats {
+    flex-wrap: wrap;
+    gap: 20px;
+  }
+  
+  .action-container {
+    flex-direction: column;
+    gap: 16px;
+  }
+  
+  .action-buttons {
+    margin-left: 0;
+    width: 100%;
+  }
+  
+  .post-card-content {
+    flex-direction: column;
+  }
+  
+  .post-stats {
+    justify-content: flex-start;
+    margin-top: 12px;
+  }
+  
+  .detail-header {
+    flex-direction: column;
+    gap: 16px;
+    align-items: flex-start;
+  }
+}
+</style>
